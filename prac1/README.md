@@ -20,8 +20,10 @@ Server needs to listen to two clients, and client needs to handle server and use
 ```bash 
 cd prac1
 make multi
-./mul_server &
-./mul_client
+./multi_server &
+./multi_client
+# another terminal
+./multi_client
 ```
 
 ## Safe connection

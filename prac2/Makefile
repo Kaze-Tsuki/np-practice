@@ -25,7 +25,7 @@ thread_advance: thread_advance.cpp
 	${CPP} ${FLAGS} -o $@ $<
 
 
-client: thread_client.cpp
+client: thread_cli.cpp
 	${CPP} ${FLAGS} -o $@ $<
 
 clean:

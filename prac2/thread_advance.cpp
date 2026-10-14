@@ -5,10 +5,12 @@
 #include <memory.h>
 #include <mutex>
 #include <netinet/in.h>
+#include <poll.h>
 #include <queue>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/poll.h>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
@@ -18,9 +20,8 @@ const char *ADDRESS = "127.0.0.1";
 const unsigned int PORT = 8000;
 
 struct Task {
-  std::function<void(int)> function;
-  int param;
-  Task(std::function<void(int)> f, int p) : function(f), param(p) {};
+  int connfd;
+  Task(int p) : connfd(p) {};
 };
 
 class ThreadPool {
@@ -33,29 +34,65 @@ private:
   std::atomic<bool> stop_flag{false};
 
   void workerLoop() {
+    std::vector<struct pollfd> fds;
     while (true) {
-      Task t{[](int) {}, 0};
+      int connfd;
       {
+        connfd = 0;
         std::unique_lock<std::mutex> lock{mtx};
-
-        // task appear or need to stop
-        cv.wait(lock, [this]() { return !tasks.empty() || stop_flag.load(); });
-
-        if (stop_flag.load() && tasks.empty()) {
-          // safe quiting
-          return;
+        if (fds.empty()) {
+          cv.wait(lock,
+                  [this]() { return !tasks.empty() || stop_flag.load(); });
+          if (stop_flag.load() && tasks.empty()) {
+            break;
+          }
         }
-
-        // acquire task and pop
-        t = std::move(tasks.front());
-        tasks.pop();
+        if (!tasks.empty()) {
+          connfd = tasks.front().connfd;
+          tasks.pop();
+        }
       }
-      // execute after release lock
-      t.function(t.param);
+
+      // add to fds
+      if (connfd > 0)
+        fds.push_back({connfd, POLLIN, 0});
+
+      int ret = poll(fds.data(), fds.size(), 1000);
+      if (ret < 0) {
+        perror("Thread poll -1");
+        break;
+      }
+      if (ret == 0)
+        continue;
+
+      char buffer[1024] = {0};
+      for (int i = 0; i < fds.size(); ++i) {
+        auto &fd = fds.at(i);
+        if (fd.revents & POLLIN) {
+          int valread = read(fd.fd, buffer, 1017);
+          if (valread <= 0) {
+            close(fd.fd);
+            fds.erase(fds.begin() + i);
+            i--;
+            continue;
+          }
+          write(STDOUT_FILENO, buffer, valread);
+          write(STDOUT_FILENO, "\n", 1);
+          memcpy(buffer + valread, " meow\n", 7);
+          int valsend = send(fd.fd, buffer, valread + 5, 0);
+          if (valsend < 0) {
+            close(fd.fd);
+            fds.erase(fds.begin() + i);
+            i--;
+            continue;
+          }
+        }
+      }
     }
   }
 
 public:
+  int max_connection = 2;
   ThreadPool(int size) : pool_size(size) {
     if (pool_size <= 0)
       throw("[ThreadPool] Assign invalid pool size");
@@ -64,10 +101,10 @@ public:
       pool.emplace_back(&ThreadPool::workerLoop, this);
     }
   }
-  void addTask(std::function<void(int)> f, int p) {
+  void addTask(int p) {
     {
       std::lock_guard<std::mutex> lock(mtx);
-      tasks.push((Task){f, p});
+      tasks.push((Task){p});
     }
     cv.notify_one();
   }
@@ -85,36 +122,9 @@ public:
   }
 };
 
-void handleClient(int connfd) {
-  // simple echo server, add meow to every line.
-  char buffer[1024] = {0};
-  int valread;
-  while ((valread = read(connfd, buffer, 1024 - 1 - 5)) > 0) {
-    write(STDOUT_FILENO, buffer, valread);
-    write(STDOUT_FILENO, "\n", 1);
-    memcpy(buffer + valread, " meow\n", 7);
-    int valsend = send(connfd, buffer, valread + 5, 0);
-    if (valsend < 0) {
-      perror("send failed");
-      break;
-    }
-  }
-
-  if (valread == -1) {
-    char tmp[300];
-    sprintf(tmp, "Client %d connection error\n", connfd);
-    write(STDOUT_FILENO, tmp, strlen(tmp));
-    close(connfd);
-    return;
-  }
-
-  close(connfd);
-  return;
-}
-
 void handleConnection(int connfd) {
-  static ThreadPool tp{3};
-  tp.addTask(handleClient, connfd);
+  static ThreadPool tp{2};
+  tp.addTask(connfd);
 }
 
 int main() {

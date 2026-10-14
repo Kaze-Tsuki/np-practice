@@ -36,8 +36,24 @@ Includes:
 cd prac2 
 make thread2
 ./thread_improve
-# on different terminal
+# on 3 different terminal
 ./client
 ```
 
+## Advance 
 
+Using both producer-consumer and IO multiplexing to maximize connections.
+
+Includes:
+- Socket Acceptor
+- Thread pool class
+- Thread workers 
+- producer-consumer queue 
+
+```bash
+cd prac2
+make thread3
+./thread_advance
+# on three different terminal
+./client
+```
