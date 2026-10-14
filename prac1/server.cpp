@@ -39,17 +39,11 @@ int main() {
     exit(EXIT_FAILURE);
   }
 
-  int client1_fd, client2_fd;
+  int client1_fd;
 
   if ((client1_fd = accept(server_fd, (struct sockaddr *)&address, &addrlen)) <
       0) {
     perror("client 1 accept failed");
-    exit(EXIT_FAILURE);
-  }
-
-  if ((client2_fd = accept(server_fd, (struct sockaddr *)&address, &addrlen)) <
-      0) {
-    perror("client2 accept failed");
     exit(EXIT_FAILURE);
   }
 
@@ -60,7 +54,6 @@ int main() {
   printf("Server: hello sent\n");
 
   close(client1_fd);
-  close(client2_fd);
 
   close(server_fd);
 
